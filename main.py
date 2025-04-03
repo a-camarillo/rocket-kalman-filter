@@ -50,6 +50,8 @@ def trajectory():
     for i in range(len(t)-1):
         x[i+1] = x[i] + v[i]*dt
         v[i+1] = v[i] + (-g - 0.5*rho*v[i]*np.abs(v[i])*(Cd*A)/m[i]+ v[i]/np.abs(v[i])*(mfr*u/m[i]))*dt
+        if v[i] > -10: 
+            print(f'velocities {v[i]}')
         if m[i] < m_dry:
             # set dry mass conditions
             m[i+1] = m_dry
@@ -116,10 +118,93 @@ def kalman_1D():
     plt.show()
 
 def discrete_ekf():
+    dt = 0.1
+    t = np.arange(0,800,dt)
 
+    x0, v0, m0 = (0.,1.,549054.)
+    x_true = np.array([[x0],[v0],[m0]]) # true state
+    x_est = x_true # estimated state 
+    P = np.diag([100., 10., 1.]) # initial covariance
+
+    # process and measurement noise
+    Q = np.diag([.01, .01, .0001])
+    R = np.diag([10, 5])
+
+    x_store = np.zeros((3, len(t)))
+    x_est_store = np.zeros((3, len(t)))
+
+    mfr = 2555
+    dm = 0
+
+    for i in range(len(t)-1):
+
+        # updating position
+        x_true[0][0] = x_true[0][0] + x_true[1][0]*dt
+        # updating velocity
+        x_true[1][0] = x_true[1][0] + (-g - 0.5*rho*x_true[1][0]*np.abs(x_true[1][0])*(Cd*A)/x_true[2][0]+ x_true[1][0]/np.abs(x_true[1][0])*(mfr*u/x_true[2][0]))*dt
+        # updating mass
+        if x_true[2][0] < m_dry:
+            # set dry mass conditions
+            x_true[2][0] = m_dry
+            # mass flow rate goes to zero since there's no fuel
+            mfr = 0
+        else:
+            x_true[2][0] = x_true[2][0] + (-mfr)*dt
+
+        # generate noisy measurement
+        z = np.array([[x_true[0][0]], [x_true[1][0]]]) + np.sqrt(R) @ np.random.randn(2,1)
+
+        # EKF predicition step
+        x_pred = x_est + np.array([[x_est[1][0]*dt],
+                                   [(-g - 0.5*rho*x_est[1][0]*np.abs(x_est[1][0])*(Cd*A)/x_est[2][0]+ x_est[1][0]/np.abs(x_est[1][0])*(mfr*u/x_est[2][0]))*dt],
+                                   [(-mfr)*dt]])
+
+        # state transition matrix
+        F = np.array([[1, dt, 0],
+                      [0, 
+                       1+(-rho*((x_est[1][0])**2/(np.abs(x_est[1][0])))*((Cd*A)/(x_est[2][0])))*dt, 
+                       (-0.5*rho*x_est[1][0]*np.abs(x_est[1][0])*(-Cd*A/(x_est[2][0]**2)) + (x_est[1][0]/np.abs(x_est[1][0]))*(-mfr*u/(x_est[2][0]**2)))*dt
+                        ],
+                      [0, 0, 1]])
+        
+        P_pred = F @ P @ F.T + Q
+
+        # Observation matrix
+        H = np.array([[1, 0, 0], [0, 1, 0]])
+
+        # Compute Kalman gain
+        K = P_pred @ H.T @ np.linalg.inv(H @ P_pred @ H.T + R)
+
+        x_est = x_pred + K @ (z - np.array([[x_pred[0][0]], [x_pred[1][0]]]))
+
+        P = (np.eye(3) - K @ H) @ P_pred
+
+        # store values
+        x_store[0][i] = x_true[0][0]
+        x_store[1][i] = x_true[1][0]
+        x_store[2][i] = x_true[2][0]
+        x_est_store[0][i] = x_est[0][0]
+        x_est_store[1][i] = x_est[1][0]
+        x_est_store[2][i] = x_est[2][0]
+
+
+    fig, (ax1, ax2, ax3) = plt.subplots(3,1)
+    ax1.plot(t, x_store[0,:], color='r') 
+    ax1.plot(t, x_est_store[0,:], color='b')
+    ax1.set_xlabel('Time(s)')
+    ax1.set_ylabel('Altitude (m)')
+    ax2.plot(t, x_store[1,:], color='r') 
+    ax2.plot(t, x_est_store[1,:], color='b')
+    ax2.set_xlabel('Time(s)')
+    ax2.set_ylabel('Velocity (m)')
+    ax3.plot(t, x_store[2,:], color='r')
+    ax3.plot(t, x_est_store[2,:], color='b')
+    ax3.set_xlabel('Time(s)')
+    ax3.set_ylabel('Mass (m)')
+    plt.show()
 
 def main():
-    simulate_1D()
+    discrete_ekf()
 
 if __name__ == "__main__":
     main()

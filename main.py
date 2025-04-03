@@ -33,8 +33,9 @@ m_dry = 25600 # kg, dry mass of Falcon 9
 # exhaust velocity
 u = 282*g # m/s, falcon 9 specific impulse times gravitational constant
 
-def main():
-    t, dt = np.linspace(0,1000, num=10000, retstep=True)
+def trajectory():
+    dt = 0.01
+    t = np.arange(0,1000, dt)
 
     x = t*0
     v = t*0
@@ -71,6 +72,54 @@ def main():
     ax3.set_ylabel('Mass')
 
     plt.show()
+
+def kalman_1D():
+    """
+    For a 1-D Rocket Simulation
+    states are position, x and velocity
+    x_dot = v
+    v_dot = acceleration
+    """
+    A = np.array([[0, 1], [0, 0]])
+    B = np.array([[0], [1]])
+    C = np.array([0, 1])
+
+    Q = 0.01 * np.eye(2) # process noise covariance
+    R = np.eye(2) # initial covariance
+
+    # initial state and covariance
+    x_hat = np.array([[0], [0]])
+    P = np.eye(2)
+
+    dt = 0.1
+    t = np.arange(0, 1000, dt)
+    accel = g*np.ones(np.size(t))
+    pos_est = np.zeros(len(t))
+
+    for k in range(len(t)-1):
+        # prediction step
+        x_hat = A @ x_hat + B * accel[k]
+        P = A @ P @ A.T + Q
+
+        # measurement update (simulated noisy GPS)
+        z = x_hat[0] + np.random.randint(0,100) * np.sqrt(R)
+        K = P @ C.T / (C @ P @ C.T + R)
+        x_hat = x_hat + K @ (z - C @ x_hat) 
+        P = (np.eye(2) - K @ C) @ P
+
+        pos_est[k] = x_hat[0][1]
+
+    fig, ax1 = plt.subplots()
+    ax1.plot(t,pos_est)
+    ax1.set_xlabel('Time')
+    ax1.set_ylabel('Estimated Position')
+    plt.show()
+
+def discrete_ekf():
+
+
+def main():
+    simulate_1D()
 
 if __name__ == "__main__":
     main()

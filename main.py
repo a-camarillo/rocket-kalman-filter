@@ -48,20 +48,14 @@ def trajectory():
     m[0] = m0
 
     for i in range(len(t)-1):
-        x[i+1] = x[i] + v[i]*dt
-        v[i+1] = v[i] + (-g - 0.5*rho*v[i]*np.abs(v[i])*(Cd*A)/m[i]+ v[i]/np.abs(v[i])*(mfr*u/m[i]))*dt
-        if v[i] > -10: 
-            print(f'velocities {v[i]}')
-        if m[i] < m_dry:
-            # set dry mass conditions
-            m[i+1] = m_dry
-            # mass flow rate goes to zero since there's no fuel
-            mfr = 0
-        else:
+        if m[i] > m_dry:
+            x[i+1] = x[i] + v[i]*dt
+            v[i+1] = v[i] + (-g - 0.5*rho*v[i]*np.abs(v[i])*(Cd*A)/m[i]+ v[i]/np.abs(v[i])*(mfr*u/m[i]))*dt
             m[i+1] = m[i] + (-mfr)*dt
-        
-        if x[i+1] == 0:
-            break
+        else:
+            x[i+1] = x[i] + v[i]*dt
+            v[i+1] = v[i] + (-g - 0.5*rho*v[i]*np.abs(v[i])*(Cd*A)/m[i])*dt
+            m[i+1] = m_dry 
         
 
     fig, (ax1, ax2, ax3) = plt.subplots(3,1)
@@ -104,7 +98,7 @@ def kalman_1D():
         P = A @ P @ A.T + Q
 
         # measurement update (simulated noisy GPS)
-        z = x_hat[0] + np.random.randint(0,100) * np.sqrt(R)
+        z = x_hat[0] + np.random.randint(0,10) * np.sqrt(R)
         K = P @ C.T / (C @ P @ C.T + R)
         x_hat = x_hat + K @ (z - C @ x_hat) 
         P = (np.eye(2) - K @ C) @ P
@@ -127,7 +121,7 @@ def discrete_ekf():
     P = np.diag([100., 10., 1.]) # initial covariance
 
     # process and measurement noise
-    Q = np.diag([.01, .01, .0001])
+    Q = np.diag([10, 10, 10])
     R = np.diag([10, 5])
 
     x_store = np.zeros((3, len(t)))
@@ -137,19 +131,24 @@ def discrete_ekf():
     dm = 0
 
     for i in range(len(t)-1):
-
-        # updating position
-        x_true[0][0] = x_true[0][0] + x_true[1][0]*dt
-        # updating velocity
-        x_true[1][0] = x_true[1][0] + (-g - 0.5*rho*x_true[1][0]*np.abs(x_true[1][0])*(Cd*A)/x_true[2][0]+ x_true[1][0]/np.abs(x_true[1][0])*(mfr*u/x_true[2][0]))*dt
-        # updating mass
-        if x_true[2][0] < m_dry:
-            # set dry mass conditions
-            x_true[2][0] = m_dry
-            # mass flow rate goes to zero since there's no fuel
-            mfr = 0
+        if x_true[2][0] > m_dry:
+            # updating position
+            x_true[0][0] = x_true[0][0] + x_true[1][0]*dt + Q[0][0]*np.random.randn(1)[0]
+            # updating velocity
+            x_true[1][0] = x_true[1][0] + (-g - 0.5*rho*x_true[1][0]*np.abs(x_true[1][0])*(Cd*A)/x_true[2][0]+ x_true[1][0]/np.abs(x_true[1][0])*(mfr*u/x_true[2][0]))*dt + Q[1][1]*np.random.rand(1)[0]
+            # updating mass
+            x_true[2][0] = x_true[2][0] + (-mfr)*dt + Q[2][2]*np.random.randn(1)[0]
         else:
-            x_true[2][0] = x_true[2][0] + (-mfr)*dt
+            # set dry mass conditions
+            
+            # updating position
+            x_true[0][0] = x_true[0][0] + x_true[1][0]*dt + Q[0][0]*np.random.randn(1)[0]
+
+            # updating velocity
+            x_true[1][0] = x_true[1][0] + (-g - 0.5*rho*x_true[1][0]*np.abs(x_true[1][0])*(Cd*A)/x_true[2][0])*dt + Q[1][1]*np.random.rand(1)[0]
+
+            # mass is just the dry mass
+            x_true[2][0] = m_dry + Q[2][2]*np.random.randn(1)[0]
 
         # generate noisy measurement
         z = np.array([[x_true[0][0]], [x_true[1][0]]]) + np.sqrt(R) @ np.random.randn(2,1)
@@ -160,12 +159,12 @@ def discrete_ekf():
                                    [(-mfr)*dt]])
 
         # state transition matrix
-        F = np.array([[1, dt, 0],
+        F = np.array([[0, dt, 0],
                       [0, 
-                       1+(-rho*((x_est[1][0])**2/(np.abs(x_est[1][0])))*((Cd*A)/(x_est[2][0])))*dt, 
+                       (-rho*((x_est[1][0])**2/(np.abs(x_est[1][0])))*((Cd*A)/(x_est[2][0])))*dt, 
                        (-0.5*rho*x_est[1][0]*np.abs(x_est[1][0])*(-Cd*A/(x_est[2][0]**2)) + (x_est[1][0]/np.abs(x_est[1][0]))*(-mfr*u/(x_est[2][0]**2)))*dt
                         ],
-                      [0, 0, 1]])
+                      [0, 0, 0]])
         
         P_pred = F @ P @ F.T + Q
 
@@ -190,15 +189,15 @@ def discrete_ekf():
 
     fig, (ax1, ax2, ax3) = plt.subplots(3,1)
     ax1.plot(t, x_store[0,:], color='r') 
-    ax1.plot(t, x_est_store[0,:], color='b')
+    ax1.plot(t, x_est_store[0,:], color='b', linestyle='--')
     ax1.set_xlabel('Time(s)')
     ax1.set_ylabel('Altitude (m)')
     ax2.plot(t, x_store[1,:], color='r') 
-    ax2.plot(t, x_est_store[1,:], color='b')
+    ax2.plot(t, x_est_store[1,:], color='b', linestyle='--')
     ax2.set_xlabel('Time(s)')
     ax2.set_ylabel('Velocity (m)')
     ax3.plot(t, x_store[2,:], color='r')
-    ax3.plot(t, x_est_store[2,:], color='b')
+    ax3.plot(t, x_est_store[2,:], color='b', linestyle='--')
     ax3.set_xlabel('Time(s)')
     ax3.set_ylabel('Mass (m)')
     plt.show()
